@@ -2,15 +2,15 @@ import { aql } from 'arangojs';
 import deepmerge from '@fastify/deepmerge';
 import { buildAqlQuery } from './query.builder.js';
 import { edgeSchema } from '../schemas/edges.schema.js';
-import { changelogSchema } from '../schemas/changelogs.schema.js';
-import { captureOldStateHook, logChangesHook } from './changelog.hooks.js';
+import { changelogSchema } from '../schemas/changelog.schema.js';
+import { logPatchHook, logBulkPatchHook } from './common.hooks.js';
 
 const merge = deepmerge({ all: true });
 
 const allRoutes = ['create', 'read', 'readBulk', 'readById', 'updateById', 'deleteById', 'createBulk', 'updateBulk', 'deleteBulk'];
 
 export const createResourceRoutes = (collectionName, options) => {
-  const { schema, indexes = [], enable = allRoutes, enableEdges = false, enableChangelogs = false, hooks = {} } = options;
+  const { schema, indexes = [], enable = allRoutes, enableEdges = false, enableChangeLogs = true, hooks = {} } = options;
   const routes = {
     [collectionName]: {
       _isCollection: true,
@@ -89,7 +89,6 @@ export const createResourceRoutes = (collectionName, options) => {
       method: 'patch',
       path: '/:id',
       schema: { body: schema.update },
-      config: { resource: { schema } },
       handler: async function updateResourceByIdHandler(req) {
         const payload = { ...req.body, updatedAt: now() };
         const query = aql`
@@ -127,7 +126,6 @@ export const createResourceRoutes = (collectionName, options) => {
       method: 'patch',
       path: '/bulk',
       schema: { body: schema.update },
-      config: { resource: { schema } },
       handler: async function updateResourceBulkHandler(req) {
         const { query: selectionQuery, bindVars } = buildAqlQuery(collectionName, schema.create, req.query);
         bindVars.payload = { ...req.body, updatedAt: now() };
@@ -175,14 +173,12 @@ export const createResourceRoutes = (collectionName, options) => {
     if (routes[collectionName].updateBulk) {
       routes[collectionName].updateBulk = merge(routes[collectionName].updateBulk, { onResponse: { logBulkPatchHook } });
     }
-  }
 
-  if (enableChangeLogs) {
-    const changelogCollectionName = `${collectionName}_changelog`;
+    const changelogCollectionName = `${collectionName}_changelogs`;
     const changelogRoutes = createResourceRoutes(changelogCollectionName, {
       schema: changelogSchema,
-      enable: ['read', 'deleteBulk'],
-      enableChangeLogs: false // CRITICAL: Prevent infinite recursion
+      enable: ['read', 'readBulk', 'deleteBulk'],
+      enableChangeLogs: false,
     });
     routes[collectionName].changelog = changelogRoutes[changelogCollectionName];
   }
@@ -196,30 +192,6 @@ export const createResourceRoutes = (collectionName, options) => {
       enableChangeLogs: false,
     });
     routes[collectionName].edges = edgeRoutes[edgeCollectionName];
-  }
-
-  if (enableChangelogs) {
-    const changelogHooks = {
-      preHandler: { captureOldStateHook },
-      onResponse: { logChangesHook },
-    };
-
-    if (routes[collectionName].updateById) {
-      routes[collectionName].updateById = merge(routes[collectionName].updateById, changelogHooks);
-    }
-    if (routes[collectionName].updateBulk) {
-      routes[collectionName].updateBulk = merge(routes[collectionName].updateBulk, changelogHooks);
-    }
-
-    const changelogCollectionName = `${collectionName}_changelogs`;
-    const changelogRoutes = createResourceRoutes(changelogCollectionName, {
-      schema: changelogSchema,
-      enable: ['readBulk', 'deleteBulk'],
-      enableEdges: false,
-      enableChangelogs: false,
-      hooks: hooks.changelogs || { onResponse: { auditLoggerHook: null } },
-    });
-    routes[collectionName].changelogs = changelogRoutes[changelogCollectionName];
   }
 
   return routes;

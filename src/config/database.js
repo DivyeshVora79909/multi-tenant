@@ -16,8 +16,7 @@ export async function setupTenantDatabase(tenantName) {
   return systemDb.database(tenantName);
 }
 
-export async function setupResourceCollections(tenantDb, collectionName, options = {}) {
-  const { indexConfigs = [] } = options;
+export async function setupResourceCollections(tenantDb, collectionName, indexConfigs = []) {
   const docCollection = tenantDb.collection(collectionName);
   const edgeCollection = tenantDb.collection(`${collectionName}_edge`);
   const changelogCollection = tenantDb.collection(`${collectionName}_changelogs`);
@@ -39,7 +38,7 @@ export async function setupResourceCollections(tenantDb, collectionName, options
   if (!(await changelogCollection.exists())) {
     console.log(`Changelog Collection '${collectionName}_changelogs' in db '${tenantDb.name}' not found. Creating...`);
     await changelogCollection.create();
-    await changelogCollection.ensureIndex({ type: 'persistent', fields: ['documentId'], name: 'idx_changelogs_documentId' });
+    await changelogCollection.ensureIndex({ type: 'persistent', fields: ['documentId'], unique: true, name: `idx_${collectionName}_changelogs_documentId` });
   }
 
   return {
@@ -49,9 +48,6 @@ export async function setupResourceCollections(tenantDb, collectionName, options
   }
 }
 
-/**
- * Generic index creation - remains declarative
- */
 async function createCollectionIndexes(tenantDb, collectionName, collection, indexConfigs) {
   try {
     console.log(`Creating ${indexConfigs.length} index(es) for '${collectionName}' collection in ${tenantDb.name}...`);

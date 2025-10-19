@@ -6,27 +6,16 @@ const hookLifecycle = [
   'onTimeout', 'onRequestAbort'
 ];
 
-/**
- * Merges parent and child route configurations. For hook objects, it performs a
- * simple key-based override (child keys replace parent keys). For other properties,
- * it merges deeply.
- * @param {object} parent - The parent configuration object.
- * @param {object} child - The child configuration object.
- * @returns {object} The merged configuration.
- */
 function mergeConfigs(parent, child) {
   const merged = { ...parent };
 
   for (const key in child) {
     if (Object.prototype.hasOwnProperty.call(child, key)) {
       if (hookLifecycle.includes(key) && typeof parent[key] === 'object' && parent[key] !== null) {
-        // For hooks, merge the objects: { ...parentHooks, ...childHooks }
         merged[key] = { ...parent[key], ...child[key] };
       } else if (typeof child[key] === 'object' && child[key] !== null && !Array.isArray(child[key]) && typeof parent[key] === 'object' && parent[key] !== null) {
-        // For other nested objects (like fastify's `config`), merge recursively
         merged[key] = mergeConfigs(parent[key], child[key]);
       } else {
-        // For primitives or arrays, child overwrites parent
         merged[key] = child[key];
       }
     }
@@ -58,7 +47,6 @@ function normalizeHookInfo(config) {
       info[key] = { count: 0, names: [] };
       continue;
     }
-    // Filter out disabled hooks (value is null or false) before counting
     const activeHooks = Object.entries(raw).filter(([_, func]) => func);
     info[key] = {
       count: activeHooks.length,
@@ -76,9 +64,8 @@ async function processRouteNode(fastify, node, parentConfig, tenantDb, routeSumm
     const pathParts = (fastify.prefix || '').split('/').filter(Boolean);
     const collectionName = pathParts[pathParts.length - 1];
     if (collectionName) {
-      const collections = await setupResourceCollections(tenantDb, collectionName, {
-        indexConfigs: node._indexes || [],
-      });
+      // Correctly pass the indexes to the setup function
+      const collections = await setupResourceCollections(tenantDb, collectionName, node._indexes || []);
       fastify.addHook('preHandler', async function injectCollections(request) {
         request.collections = collections;
       });
@@ -102,10 +89,8 @@ async function processRouteNode(fastify, node, parentConfig, tenantDb, routeSumm
         ...finalRouteConfig
       };
       
-      // *** NEW: Convert hook objects to arrays for Fastify ***
       for (const hookName of hookLifecycle) {
           if (routeOptions[hookName] && typeof routeOptions[hookName] === 'object') {
-              // Filter out disabled hooks and get the function values
               routeOptions[hookName] = Object.values(routeOptions[hookName]).filter(Boolean);
           }
       }
@@ -115,14 +100,12 @@ async function processRouteNode(fastify, node, parentConfig, tenantDb, routeSumm
       const fullPath = (fastify.prefix + routeOptions.url).replace(/\/+/g, '/').replace(/\/$/, '') || '/';
       const hookInfo = normalizeHookInfo(finalRouteConfig);
       const handlerName = handlerDefinition.handler?.name || finalRouteConfig.handler?.name || 'anonymous';
-      const summaryEntry = {
+      routeSummaries.push({
         method: String(routeOptions.method).toUpperCase(),
         path: fullPath,
         handler: handlerName,
         hooks: hookInfo
-      };
-
-      routeSummaries.push(summaryEntry);
+      });
 
     } else {
       await fastify.register(async (childInstance) => {
