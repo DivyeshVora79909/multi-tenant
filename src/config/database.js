@@ -16,16 +16,26 @@ export async function setupTenantDatabase(tenantName) {
   return systemDb.database(tenantName);
 }
 
+<<<<<<< HEAD
 export async function setupResourceCollections(tenantDb, collectionName, options = {}) {
   const { indexConfigs = [] } = options;
   const docCollection = tenantDb.collection(collectionName);
   const edgeCollection = tenantDb.collection(`${collectionName}_edge`);
   const changelogCollection = tenantDb.collection(`${collectionName}_changelogs`);
+=======
+export async function setupResourceCollections(tenantDb, collectionName, indexConfigs = []) {
+  const docCollection = tenantDb.collection(collectionName);
+  const edgeCollection = tenantDb.collection(`${collectionName}_edge`);
+>>>>>>> c835626 (90% done)
 
   if (!(await docCollection.exists())) {
     console.log(`Collection '${collectionName}' in db '${tenantDb.name}' not found. Creating...`);
     await docCollection.create();
     
+<<<<<<< HEAD
+=======
+    // Create indexes if provided
+>>>>>>> c835626 (90% done)
     if (indexConfigs.length > 0) {
       await createCollectionIndexes(tenantDb, collectionName, docCollection, indexConfigs);
     }
@@ -36,12 +46,15 @@ export async function setupResourceCollections(tenantDb, collectionName, options
     await edgeCollection.create({ type: 3 });
   }
 
+<<<<<<< HEAD
   if (!(await changelogCollection.exists())) {
     console.log(`Changelog Collection '${collectionName}_changelogs' in db '${tenantDb.name}' not found. Creating...`);
     await changelogCollection.create();
     await changelogCollection.ensureIndex({ type: 'persistent', fields: ['documentId'], name: 'idx_changelogs_documentId' });
   }
 
+=======
+>>>>>>> c835626 (90% done)
   return {
     docs: docCollection,
     edges: edgeCollection
