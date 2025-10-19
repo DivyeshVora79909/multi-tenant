@@ -44,7 +44,8 @@ export async function setupResourceCollections(tenantDb, collectionName, options
 
   return {
     docs: docCollection,
-    edges: edgeCollection
+    edges: edgeCollection,
+    changelog: changelogCollection,
   }
 }
 

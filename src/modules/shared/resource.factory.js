@@ -93,9 +93,9 @@ export const createResourceRoutes = (collectionName, options) => {
       handler: async function updateResourceByIdHandler(req) {
         const payload = { ...req.body, updatedAt: now() };
         const query = aql`
-            LET doc = DOCUMENT(${req.collections.docs.name}, ${req.params.id})
-            UPDATE doc WITH ${payload} IN ${req.collections.docs}
-            UPDATE doc WITH { _version: doc._version + 1 } IN ${req.collections.docs} OPTIONS { keepNull: false, mergeObjects: true }
+            FOR doc IN ${req.collections.docs}
+            FILTER doc._key == ${req.params.id}
+            UPDATE doc WITH MERGE(doc, ${payload}, { _version: doc._version + 1 }) IN ${req.collections.docs}
             RETURN NEW
         `;
         const cursor = await req.db.query(query);
@@ -133,12 +133,13 @@ export const createResourceRoutes = (collectionName, options) => {
         bindVars.payload = { ...req.body, updatedAt: now() };
         const updateQuery = aql`
             FOR doc IN (${selectionQuery})
-            UPDATE doc WITH @payload IN ${aql.literal(collectionName)} OPTIONS { keepNull: false, mergeObjects: true }
-            UPDATE doc WITH { _version: doc._version + 1 } IN ${aql.literal(collectionName)}
-            RETURN NEW
+            UPDATE doc WITH MERGE(doc, @payload, { _version: doc._version + 1 }) IN ${aql.literal(collectionName)}
+            RETURN NEW._key
         `;
         const cursor = await req.db.query(updateQuery, bindVars);
-        return await cursor.all();
+        const updatedKeys = await cursor.all();
+        req.updatedKeys = updatedKeys;
+        return { updatedCount: updatedKeys.length };
       },
     }),
     
@@ -167,14 +168,33 @@ export const createResourceRoutes = (collectionName, options) => {
     }
   }
 
+  if (enableChangeLogs) {
+    if (routes[collectionName].updateById) {
+      routes[collectionName].updateById = merge(routes[collectionName].updateById, { onResponse: { logPatchHook } });
+    }
+    if (routes[collectionName].updateBulk) {
+      routes[collectionName].updateBulk = merge(routes[collectionName].updateBulk, { onResponse: { logBulkPatchHook } });
+    }
+  }
+
+  if (enableChangeLogs) {
+    const changelogCollectionName = `${collectionName}_changelog`;
+    const changelogRoutes = createResourceRoutes(changelogCollectionName, {
+      schema: changelogSchema,
+      enable: ['read', 'deleteBulk'],
+      enableChangeLogs: false // CRITICAL: Prevent infinite recursion
+    });
+    routes[collectionName].changelog = changelogRoutes[changelogCollectionName];
+  }
+
   if (enableEdges) {
-    const edgeOptions = {
+    const edgeCollectionName = `${collectionName}_edge`;
+    const edgeRoutes = createResourceRoutes(edgeCollectionName, {
       schema: edgeSchema,
       enable: allRoutes,
       hooks: hooks.edges || {},
-    };
-    const edgeCollectionName = `${collectionName}_edge`;
-    const edgeRoutes = createResourceRoutes(edgeCollectionName, edgeOptions);
+      enableChangeLogs: false,
+    });
     routes[collectionName].edges = edgeRoutes[edgeCollectionName];
   }
 

@@ -1,3 +1,4 @@
+import { aql } from 'arangojs';
 import { shallowCloneAndTruncate, redactSensitiveFields } from "./common.utils.js";
 
 export const capturePayloadHook = async (req, reply, payload) => {
@@ -43,4 +44,69 @@ export const auditLoggerHook = async (req, reply) => {
     const logger = req.log || console;
     logger.error({ err: error }, 'Failed to write to audit log');
   }
+};
+
+export const logPatchHook = async (req, reply) => {
+    if (reply.statusCode < 200 || reply.statusCode >= 300) return;
+    if (!req.body || Object.keys(req.body).length === 0) return;
+
+    const documentId = `${req.collections.docs.name}/${req.params.id}`;
+    const changelogCollection = req.collections.changelog;
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        userId: req.auth?.userId || null,
+        roleId: req.auth?.roleId || null,
+        patch: req.body
+    };
+
+    const query = aql`
+        UPSERT { documentId: ${documentId} }
+        INSERT {
+            documentId: ${documentId},
+            changes: [${logEntry}],
+            createdAt: UTC_TIMESTAMP(),
+            updatedAt: UTC_TIMESTAMP()
+        }
+        UPDATE {
+            changes: APPEND(OLD.changes, ${logEntry}),
+            updatedAt: UTC_TIMESTAMP()
+        }
+        IN ${changelogCollection}
+    `;
+
+    try {
+        req.db.query(query);
+    } catch (error) {
+        req.log.error({ err: error, documentId }, `Failed to write to changelog collection '${changelogCollection.name}'`);
+    }
+};
+
+export const logBulkPatchHook = async (req, reply) => {
+    if (reply.statusCode < 200 || reply.statusCode >= 300) return;
+    if (!req.body || Object.keys(req.body).length === 0 || !req.updatedKeys || req.updatedKeys.length === 0) return;
+
+    const changelogCollection = req.collections.changelog;
+
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        userId: req.auth?.userId || null,
+        roleId: req.auth?.roleId || null,
+        patch: req.body
+    };
+
+    for (const key of req.updatedKeys) {
+      const documentId = `${req.collections.docs.name}/${key}`;
+      const query = aql`
+        UPSERT { documentId: ${documentId} }
+        INSERT { documentId: ${documentId}, changes: [${logEntry}], createdAt: UTC_TIMESTAMP(), updatedAt: UTC_TIMESTAMP() }
+        UPDATE { changes: APPEND(OLD.changes, ${logEntry}), updatedAt: UTC_TIMESTAMP() }
+        IN ${changelogCollection}
+      `;
+      try {
+        req.db.query(query);
+      } catch (error) {
+        req.log.error({ err: error, documentId }, `Failed to write bulk patch to changelog`);
+      }
+    }
 };
