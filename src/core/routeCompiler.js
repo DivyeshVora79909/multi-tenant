@@ -76,14 +76,9 @@ async function processRouteNode(fastify, node, parentConfig, tenantDb, routeSumm
     const pathParts = (fastify.prefix || '').split('/').filter(Boolean);
     const collectionName = pathParts[pathParts.length - 1];
     if (collectionName) {
-<<<<<<< HEAD
       const collections = await setupResourceCollections(tenantDb, collectionName, {
         indexConfigs: node._indexes || [],
       });
-=======
-      const indexConfigs = node._indexes || [];
-      const collections = await setupResourceCollections(tenantDb, collectionName, indexConfigs);
->>>>>>> c835626 (90% done)
       fastify.addHook('preHandler', async function injectCollections(request) {
         request.collections = collections;
       });
